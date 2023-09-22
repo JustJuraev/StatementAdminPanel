@@ -41,3 +41,21 @@
 .ppr {
     width: 1600px;
 }
+.texxt {
+    margin-top: 30px;
+    text-align: center;
+}
+.st {
+    font-size: 20px;
+    margin-left: 50px;
+}
+.loginbutton {
+    margin-top: 25px;
+}
+.oshibka {
+    color: red;
+    text-align: center;
+}
+.orgbutton {
+    margin-top: 20px;
+}
