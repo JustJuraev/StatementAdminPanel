@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -38,6 +37,14 @@ type User struct {
 	OrgId    int    `json:"orgid"`
 }
 
+type StatementHistory struct {
+	Id          int
+	UserId      int
+	StatementId int
+	Time        time.Time
+	Action      string
+}
+
 type Organization struct {
 	Id   int
 	Name string
@@ -56,7 +63,7 @@ func GetStatements(page http.ResponseWriter, r *http.Request) {
 
 	defer db.Close()
 
-	row, err2 := db.Query("SELECT * FROM public.statements")
+	row, err2 := db.Query("SELECT * FROM public.statements WHERE status=$1", 100)
 
 	if err2 != nil {
 		panic(err2)
@@ -79,6 +86,41 @@ func GetStatements(page http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	tmpl.ExecuteTemplate(page, "statements", statements)
+}
+
+func OrgStatements(page http.ResponseWriter, r *http.Request) {
+	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+
+	row, err2 := db.Query("SELECT * FROM public.statements WHERE status=$1", 110)
+
+	if err2 != nil {
+		panic(err2)
+	}
+
+	defer row.Close()
+
+	statements := []StatementStruct{}
+	for row.Next() {
+		st := StatementStruct{}
+		err3 := row.Scan(&st.Id, &st.Name, &st.LastName, &st.Date, &st.Status, &st.Statement, &st.PassportSeries, &st.Time, &st.UserId, &st.OrgId)
+		if err3 != nil {
+			fmt.Println(err3)
+		}
+		statements = append(statements, st)
+	}
+
+	tmpl, err := template.ParseFiles("html_files/orgstatements.html", "html_files/zagolovok.html")
+	if err != nil {
+		panic(err)
+	}
+	tmpl.ExecuteTemplate(page, "orgstatements", statements)
 }
 
 func GetStatementText(page http.ResponseWriter, r *http.Request) {
@@ -162,9 +204,6 @@ func LoginPost(page http.ResponseWriter, r *http.Request) {
 
 		if user.Role == 1 {
 			http.Redirect(page, r, "/statements", http.StatusSeeOther)
-		} else if user.Role == 2 {
-			s2 := strconv.Itoa(user.OrgId)
-			http.Redirect(page, r, "/orgstatements/"+s2, http.StatusSeeOther)
 		}
 	}
 }
@@ -233,7 +272,7 @@ func AddOrgPost(page http.ResponseWriter, r *http.Request) {
 	status := r.FormValue("status")
 	statement := r.FormValue("statement")
 	ps := r.FormValue("ps")
-	//time := r.FormValue("time")
+	time := time.Now()
 
 	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
@@ -249,9 +288,80 @@ func AddOrgPost(page http.ResponseWriter, r *http.Request) {
 		panic(err2)
 	}
 
+	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action) VALUES ($1, $2, $3, $4)", uid, sid, time, "sent to organization")
+	if err4 != nil {
+		panic(err2)
+	}
 	http.Redirect(page, r, "/statements", http.StatusSeeOther)
+}
 
-	//TODO: Сделать StatementHistory.
+func RejectStatement(page http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+
+	row := db.QueryRow("SELECT * FROM public.statements WHERE id = $1", id)
+	st := StatementStruct{}
+
+	err2 := row.Scan(&st.Id, &st.Name, &st.LastName, &st.Date, &st.Status, &st.Statement, &st.PassportSeries, &st.Time, &st.UserId, &st.OrgId)
+	if err2 != nil {
+		fmt.Println(err2)
+	}
+
+	_, err3 := db.Exec("UPDATE public.statements set name=$1, lastname=$2, date=$3, status=$4, statement=$5, passportseries=$6, userid=$7, orgid=$8 where id=$9", st.Name, st.LastName, st.Date, 120, st.Statement, st.PassportSeries, st.UserId, st.OrgId, st.Id)
+	if err3 != nil {
+		panic(err3)
+	}
+
+	time := time.Now()
+	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action) VALUES ($1, $2, $3, $4)", st.UserId, st.Id, time, "reject")
+	if err4 != nil {
+		panic(err2)
+	}
+	http.Redirect(page, r, "/statements", http.StatusSeeOther)
+}
+
+func RejStatements(page http.ResponseWriter, r *http.Request) {
+	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+
+	row, err2 := db.Query("SELECT * FROM public.statements WHERE status=$1", 120)
+
+	if err2 != nil {
+		panic(err2)
+	}
+
+	defer row.Close()
+
+	statements := []StatementStruct{}
+	for row.Next() {
+		st := StatementStruct{}
+		err3 := row.Scan(&st.Id, &st.Name, &st.LastName, &st.Date, &st.Status, &st.Statement, &st.PassportSeries, &st.Time, &st.UserId, &st.OrgId)
+		if err3 != nil {
+			fmt.Println(err3)
+		}
+		statements = append(statements, st)
+	}
+
+	tmpl, err := template.ParseFiles("html_files/rejstatements.html", "html_files/zagolovok.html")
+	if err != nil {
+		panic(err)
+	}
+	tmpl.ExecuteTemplate(page, "rejstatements", statements)
 }
 
 func main() {
@@ -262,8 +372,11 @@ func main() {
 	router.HandleFunc("/login_check", LoginPost)
 	router.HandleFunc("/statements", GetStatements)
 	router.HandleFunc("/addorgpost", AddOrgPost)
+	router.HandleFunc("/orgstatements", OrgStatements)
+	router.HandleFunc("/rejstatements", RejStatements)
 	router.HandleFunc("/getsttext/{id:[0-9]+}", GetStatementText)
 	router.HandleFunc("/addorg/{id:[0-9]+}", AddOrg)
+	router.HandleFunc("/rejectst/{id:[0-9]+}", RejectStatement)
 	http.Handle("/", router)
 	http.ListenAndServe(":8082", nil)
 }
