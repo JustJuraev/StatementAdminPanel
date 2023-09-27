@@ -43,6 +43,7 @@ type StatementHistory struct {
 	StatementId int
 	Time        time.Time
 	Action      string
+	OrgId       int
 }
 
 type Organization struct {
@@ -52,6 +53,7 @@ type Organization struct {
 
 var statements = []StatementStruct{}
 var organizations = []Organization{}
+var sthistory = []StatementHistory{}
 
 func GetStatements(page http.ResponseWriter, r *http.Request) {
 	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
@@ -143,11 +145,38 @@ func GetStatementText(page http.ResponseWriter, r *http.Request) {
 		fmt.Println(err2)
 	}
 
+	row2, err2 := db.Query("SELECT * FROM public.statementshistory WHERE statementid=$1", st.Id)
+
+	if err2 != nil {
+		panic(err2)
+	}
+
+	defer row2.Close()
+
+	sthistory = []StatementHistory{}
+	for row2.Next() {
+		sh := StatementHistory{}
+		err3 := row2.Scan(&sh.Id, &sh.UserId, &sh.StatementId, &sh.Time, &sh.Action, &sh.OrgId)
+		if err3 != nil {
+			fmt.Println(err3)
+		}
+
+		sthistory = append(sthistory, sh)
+	}
+
+	data := struct {
+		St    StatementStruct
+		Array []StatementHistory
+	}{
+		St:    st,
+		Array: sthistory,
+	}
+
 	tmpl, err := template.ParseFiles("html_files/getsttext.html", "html_files/zagolovok.html")
 	if err != nil {
 		panic(err)
 	}
-	tmpl.ExecuteTemplate(page, "sttext", st)
+	tmpl.ExecuteTemplate(page, "sttext", data)
 }
 
 func Login(page http.ResponseWriter, r *http.Request) {
@@ -288,7 +317,7 @@ func AddOrgPost(page http.ResponseWriter, r *http.Request) {
 		panic(err2)
 	}
 
-	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action) VALUES ($1, $2, $3, $4)", uid, sid, time, "sent to organization")
+	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action, orgid) VALUES ($1, $2, $3, $4, $5)", uid, sid, time, "sent to organization", orgid)
 	if err4 != nil {
 		panic(err2)
 	}
@@ -322,7 +351,7 @@ func RejectStatement(page http.ResponseWriter, r *http.Request) {
 	}
 
 	time := time.Now()
-	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action) VALUES ($1, $2, $3, $4)", st.UserId, st.Id, time, "reject")
+	_, err4 := db.Exec("INSERT INTO public.statementshistory (userid, statementid, date, action, orgid) VALUES ($1, $2, $3, $4, $5)", st.UserId, st.Id, time, "reject", st.OrgId)
 	if err4 != nil {
 		panic(err2)
 	}
@@ -364,6 +393,41 @@ func RejStatements(page http.ResponseWriter, r *http.Request) {
 	tmpl.ExecuteTemplate(page, "rejstatements", statements)
 }
 
+func CloseStatements(page http.ResponseWriter, r *http.Request) {
+	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer db.Close()
+
+	row, err2 := db.Query("SELECT * FROM public.statements WHERE status=$1", 200)
+
+	if err2 != nil {
+		panic(err2)
+	}
+
+	defer row.Close()
+
+	statements := []StatementStruct{}
+	for row.Next() {
+		st := StatementStruct{}
+		err3 := row.Scan(&st.Id, &st.Name, &st.LastName, &st.Date, &st.Status, &st.Statement, &st.PassportSeries, &st.Time, &st.UserId, &st.OrgId)
+		if err3 != nil {
+			fmt.Println(err3)
+		}
+		statements = append(statements, st)
+	}
+
+	tmpl, err := template.ParseFiles("html_files/closestatements.html", "html_files/zagolovok.html")
+	if err != nil {
+		panic(err)
+	}
+	tmpl.ExecuteTemplate(page, "closestatements", statements)
+}
+
 func main() {
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 
@@ -374,6 +438,7 @@ func main() {
 	router.HandleFunc("/addorgpost", AddOrgPost)
 	router.HandleFunc("/orgstatements", OrgStatements)
 	router.HandleFunc("/rejstatements", RejStatements)
+	router.HandleFunc("/closetatements", CloseStatements)
 	router.HandleFunc("/getsttext/{id:[0-9]+}", GetStatementText)
 	router.HandleFunc("/addorg/{id:[0-9]+}", AddOrg)
 	router.HandleFunc("/rejectst/{id:[0-9]+}", RejectStatement)
