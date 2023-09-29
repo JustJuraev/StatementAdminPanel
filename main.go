@@ -46,6 +46,16 @@ type StatementHistory struct {
 	OrgId       int
 }
 
+type StH struct {
+	UserId      int
+	StatementId int
+	Time        time.Time
+	Action      string
+	OrgId       int
+	Name        string
+	LastName    string
+}
+
 type Organization struct {
 	Id   int
 	Name string
@@ -53,7 +63,7 @@ type Organization struct {
 
 var statements = []StatementStruct{}
 var organizations = []Organization{}
-var sthistory = []StatementHistory{}
+var sthistory = []StH{}
 
 func GetStatements(page http.ResponseWriter, r *http.Request) {
 	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
@@ -145,7 +155,7 @@ func GetStatementText(page http.ResponseWriter, r *http.Request) {
 		fmt.Println(err2)
 	}
 
-	row2, err2 := db.Query("SELECT * FROM public.statementshistory WHERE statementid=$1", st.Id)
+	row2, err2 := db.Query("SELECT s.Id, s.userid, s.statementid, s.date, s.Action, s.orgid, u.name, u.lastname FROM public.statementshistory AS s INNER JOIN public.users AS u on s.userid = u.id WHERE statementid = $1", st.Id)
 
 	if err2 != nil {
 		panic(err2)
@@ -153,20 +163,31 @@ func GetStatementText(page http.ResponseWriter, r *http.Request) {
 
 	defer row2.Close()
 
-	sthistory = []StatementHistory{}
+	sthistory = []StH{}
 	for row2.Next() {
-		sh := StatementHistory{}
-		err3 := row2.Scan(&sh.Id, &sh.UserId, &sh.StatementId, &sh.Time, &sh.Action, &sh.OrgId)
+		stt := StatementHistory{}
+		ur := User{}
+		err3 := row2.Scan(&stt.Id, &stt.UserId, &stt.StatementId, &stt.Time, &stt.Action, &stt.OrgId, &ur.Name, &ur.LastName)
 		if err3 != nil {
 			fmt.Println(err3)
 		}
 
-		sthistory = append(sthistory, sh)
+		sth := StH{
+			UserId:      stt.UserId,
+			StatementId: stt.StatementId,
+			Time:        stt.Time,
+			Action:      stt.Action,
+			OrgId:       stt.OrgId,
+			Name:        ur.Name,
+			LastName:    ur.LastName,
+		}
+		sthistory = append(sthistory, sth)
+
 	}
 
 	data := struct {
 		St    StatementStruct
-		Array []StatementHistory
+		Array []StH
 	}{
 		St:    st,
 		Array: sthistory,
