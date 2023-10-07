@@ -1,11 +1,11 @@
 package main
 
 import (
-	"crypto/md5"
 	"database/sql"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -64,6 +64,7 @@ type Organization struct {
 var statements = []StatementStruct{}
 var organizations = []Organization{}
 var sthistory = []StH{}
+var users = []User{}
 
 func GetStatements(page http.ResponseWriter, r *http.Request) {
 	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
@@ -205,59 +206,27 @@ func Login(page http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
+
 	tmpl.ExecuteTemplate(page, "login", nil)
 }
 
-func LoginPost(page http.ResponseWriter, r *http.Request) {
-	login := r.FormValue("login")
-	password := r.FormValue("password")
-
-	if login == "" || password == "" {
-		tmpl, err := template.ParseFiles("html_files/login.html")
-		if err != nil {
-			panic(err)
-		}
-
-		tmpl.ExecuteTemplate(page, "login", "Все поля должны быть заполнеными")
-	}
-	connStr := "user=postgres password=123456 dbname=mygovdb sslmode=disable"
-	db, err := sql.Open("postgres", connStr)
-
+func HandleOAuthRequest(page http.ResponseWriter, r *http.Request) {
+	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		panic(err)
 	}
 
-	defer db.Close()
+	deserializedUser := User{}
+	err = json.Unmarshal([]byte(string(b)), &deserializedUser)
 
-	hash := md5.Sum([]byte(password))
-	hashedPass := hex.EncodeToString(hash[:])
-
-	res := db.QueryRow("SELECT * FROM public.users WHERE login = $1 AND password = $2", login, hashedPass)
-	user := User{}
-
-	err3 := res.Scan(&user.Id, &user.Login, &user.Password, &user.Name, &user.LastName, &user.Role, &user.OrgId)
-
-	if err3 != nil {
-
-		if user.OrgId == 0 && user.Role == 1 {
-			http.Redirect(page, r, "/statements", http.StatusSeeOther)
-			return
-		}
-		tmpl, err2 := template.ParseFiles("html_files/login.html")
-		if err2 != nil {
-			panic(err2)
-		}
-
-		tmpl.ExecuteTemplate(page, "login", "Неправильный логин или пароль")
-
+	users = append(users, deserializedUser)
+	if users[0].Role == 1 {
+		http.Redirect(page, r, "/statements", http.StatusSeeOther)
 	} else {
-
-		if user.Role == 1 {
-			http.Redirect(page, r, "/statements", http.StatusSeeOther)
-		}
+		http.Redirect(page, r, "/", http.StatusSeeOther)
 	}
-}
 
+}
 func AddOrg(page http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
@@ -454,7 +423,7 @@ func main() {
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", Login)
-	router.HandleFunc("/login_check", LoginPost)
+	router.HandleFunc("/handleouathcheck", HandleOAuthRequest)
 	router.HandleFunc("/statements", GetStatements)
 	router.HandleFunc("/addorgpost", AddOrgPost)
 	router.HandleFunc("/orgstatements", OrgStatements)
